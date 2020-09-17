@@ -15,7 +15,7 @@ polls <- read_excel("Parliamentary 2020.xlsx", sheet = "data")%>%
                            "NOTASKED",
                            "NOTDECIDED",
                            "REFUSE",
-                           "OTHER",
+                           # "OTHER",
                            "UNDECIDED"
   ))%>%
   mutate(
@@ -36,6 +36,7 @@ polls <- read_excel("Parliamentary 2020.xlsx", sheet = "data")%>%
     Percent = Percent/sum(Percent),
     sigma=(AME/4)*0.01
   )%>%
+  arrange(field_last_day)%>%
   ungroup()%>%
   mutate(
     sigma= tidyr::replace_na(sigma, mean(sigma, na.rm=T)))
@@ -46,6 +47,7 @@ polls <- read_excel("Parliamentary 2020.xlsx", sheet = "data")%>%
 # One row for each day, one column for each poll on that day, -9 for missing values
 Y_dream <- polls %>%
   filter(PARTYCODE == "GD")%>%
+  arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
   filter(N > 8) %>% dcast(field_last_day  ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day ) %>% 
@@ -54,6 +56,7 @@ Y_dream[is.na(Y_dream)] <- -9
 
 Y_unm <- polls %>%
   filter(PARTYCODE == "UNM")%>%
+  arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
   filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
@@ -62,6 +65,7 @@ Y_unm[is.na(Y_unm)] <- -9
 
 Y_eurogeo <- polls %>%
   filter(PARTYCODE == "EUROGEO")%>%
+  arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
   group_by(WAVEID)%>%
   summarize(field_last_day=first(field_last_day),
@@ -77,16 +81,38 @@ Y_eurogeo[is.na(Y_eurogeo)] <- -9
 
 Y_apg <- polls %>%
   filter(PARTYCODE == "APG")%>%
+  arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
   filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
   as.data.frame %>% as.matrix
 Y_apg[is.na(Y_apg)] <- -9
 
+
+Y_agm <- polls %>%
+  filter(PARTYCODE == "NEWGEORGIA")%>%
+  arrange(field_last_day)%>%
+  mutate(N = 1:n())%>%
+  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  dplyr::select(-field_last_day) %>% 
+  as.data.frame %>% as.matrix
+Y_agm[is.na(Y_agm)] <- -9
+
+Y_lab <- polls %>%
+  filter(PARTYCODE == "LABOR")%>%
+  arrange(field_last_day)%>%
+  mutate(N = 1:n())%>%
+  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  dplyr::select(-field_last_day) %>% 
+  as.data.frame %>% as.matrix
+Y_lab[is.na(Y_lab)] <- -9
+
+
 # Do the same for margin of errors for those polls
 
 sigma <- polls %>%
   filter(PARTYCODE == "GD")%>%
+  arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
   filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
   dplyr::select(-field_last_day)%>% 
@@ -129,6 +155,7 @@ apg_model <- stan("state_space_polls.stan",
                                   sigma = sigma,
                                   initial_prior = 0.0656),
                       control = list(adapt_delta = 0.999999))
+
 # Pull the state vectors
 
 mu_dream <- rstan::extract(dream_model, pars = "mu", permuted = T)[[1]] %>% 
@@ -170,7 +197,7 @@ preds <- rbind(mu_dream, mu_unm, mu_eurogeo, mu_apg)%>%
   )
 
 analysis <- preds %>%
-  subset(select=c(`2020-07-13`, party))%>%
+  subset(select=c(`2020-09-07`, party))%>%
   as.data.frame()
 
 names(analysis) <- c("value", "party")
@@ -181,32 +208,33 @@ analysis %>%
   ungroup()%>%
   pivot_wider(names_from = party, values_from=value) -> party_grouped
 
+names(party_grouped) <- c("row", "gd", "unm", "eg", "pa")
 ### Count what is the chance of GD losing to opposition
 
-nrow(party_grouped[party_grouped$`Georgian Dream` < 0.5, ])/nrow(party_grouped)
-nrow(party_grouped[party_grouped$`Georgian Dream` > 0.4, ])/nrow(party_grouped)
-nrow(party_grouped[party_grouped$`Georgian Dream` >= 0.75, ])/nrow(party_grouped)
-nrow(party_grouped[party_grouped$`Georgian Dream` < party_grouped$`United National Movement`, ])/nrow(party_grouped)
+nrow(party_grouped[party_grouped$`gd` > 0.5, ])/nrow(party_grouped)
+nrow(party_grouped[party_grouped$`gd` > 0.4, ])/nrow(party_grouped)
+nrow(party_grouped[party_grouped$`gd` >= 0.75, ])/nrow(party_grouped)
+nrow(party_grouped[party_grouped$`gd` < party_grouped$`unm`, ])/nrow(party_grouped)
 
 
 
-ggplot(preds, aes(`2020-07-13`, group=party, fill=party, color=party))+
+ggplot(preds, aes(`2020-09-07`, group=party, fill=party, color=party))+
   geom_density_interactive(aes(y = (..count..)/sum(..count..), tooltip=party), alpha=0.5)+
   scale_fill_manual(values=c( "#195ea2", "#dc082b", "#003a75", "#e7b031"))+
   scale_color_manual(values=c( "#195ea2", "#dc082b", "#003a75", "#e7b031"))+
   geom_vline(xintercept = 0.5)+
   geom_vline(xintercept = 0.4)+
   geom_vline(xintercept = 0.01)+
-  geom_vline(xintercept = median(mu_dream$`2020-07-13`), color="#a6cee3", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_unm$`2020-07-13`), color="#dc082b", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_eurogeo$`2020-07-13`), color="#003a75", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_apg$`2020-07-13`), color="#e7b031", linetype = "longdash")+
-  annotate("text", x = median(mu_dream$`2020-07-13`), y = 0.009,  color="#a6cee3", label = sprintf("%0.f", round(median(mu_dream$`2020-07-13`)*100, digits = 0)))+
-  annotate("text", x = median(mu_unm$`2020-07-13`), y = 0.009,  color="#dc082b", label = sprintf("%0.f", round(median(mu_unm$`2020-07-13`)*100, digits = 0)))+
-  annotate("text", x = median(mu_eurogeo$`2020-07-13`), y = 0.009,  color="#003a75", label = sprintf("%0.f", round(median(mu_eurogeo$`2020-07-13`)*100, digits = 0)))+
-  annotate("text", x = median(mu_apg$`2020-07-13`), y = 0.009,  color="#e7b031", label = sprintf("%0.f", round(median(mu_apg$`2020-07-13`)*100, digits = 0)))+
-  annotate("text", x = 0.01, y = 0.009,  label = "1%-იანი\nსაარჩევნო\nბარიერი", family="BPG Excelsior Exp")+
-  annotate("text", x = 0.4, y = 0.009,  label = "40%-იანი\nჩამკეტი\nბარიერი", family="BPG Excelsior Exp")+
+  geom_vline(xintercept = median(mu_dream$`2020-09-07`), color="#0077be", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_unm$`2020-09-07`), color="#dc082b", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_eurogeo$`2020-09-07`), color="#003a75", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_apg$`2020-09-07`), color="#e7b031", linetype = "longdash")+
+  annotate("text", x = median(mu_dream$`2020-09-07`), y = 0.009,  color="#0077be", label = sprintf("%0.f", round(median(mu_dream$`2020-09-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_unm$`2020-09-07`), y = 0.009,  color="#dc082b", label = sprintf("%0.f", round(median(mu_unm$`2020-09-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_eurogeo$`2020-09-07`), y = 0.009,  color="#003a75", label = sprintf("%0.f", round(median(mu_eurogeo$`2020-09-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_apg$`2020-09-07`), y = 0.009,  color="#e7b031", label = sprintf("%0.f", round(median(mu_apg$`2020-09-07`)*100, digits = 0)))+
+  annotate("text", x = 0.01, y = 0.008,  label = "1%-იანი\nსაარჩევნო\nბარიერი", family="BPG Excelsior Exp")+
+  annotate("text", x = 0.4, y = 0.008,  label = "40%-იანი\nჩამკეტი\nბარიერი", family="BPG Excelsior Exp")+
   scale_x_continuous(labels=function(x)x*100, limits=c(0, 1))+
   # facet_wrap(~party)
   labs(# title="პოლიტიკური პარტიების სიმულირებული პროპორცია",
@@ -229,7 +257,7 @@ gg_a <- girafe(ggobj=gg, width_svg = 9, height_svg = 6)
 gg_a <- girafe_options(gg_a, opts_tooltip(css = tooltip_css, opacity = .75))
 gg_a
 
-htmlwidgets::saveWidget(gg_g, "model_ka.html")
+htmlwidgets::saveWidget(gg_a, "model_ka.html")
 
 
 ### English chart
@@ -245,23 +273,23 @@ preds <- rbind(mu_dream, mu_unm, mu_eurogeo, mu_apg)%>%
                                    "Alliance of Patriots"))
   )
 
-ggplot(preds, aes(`2020-07-13`, group=party, fill=party, color=party))+
+ggplot(preds, aes(`2020-09-07`, group=party, fill=party, color=party))+
   geom_density_interactive(aes(y = (..count..)/sum(..count..), tooltip=party), alpha=0.5)+
   scale_fill_manual(values=c( "#195ea2", "#dc082b", "#003a75", "#e7b031"))+
   scale_color_manual(values=c( "#195ea2", "#dc082b", "#003a75", "#e7b031"))+
   geom_vline(xintercept = 0.5)+
   geom_vline(xintercept = 0.4)+
   geom_vline(xintercept = 0.01)+
-  geom_vline(xintercept = median(mu_dream$`2020-07-13`), color="#a6cee3", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_unm$`2020-07-13`), color="#dc082b", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_eurogeo$`2020-07-13`), color="#003a75", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_apg$`2020-07-13`), color="#e7b031", linetype = "longdash")+
-  annotate("text", x = median(mu_dream$`2020-07-13`), y = 0.009,  color="#a6cee3", label = sprintf("%0.f", round(median(mu_dream$`2020-07-13`)*100, digits = 0)))+
-  annotate("text", x = median(mu_unm$`2020-07-13`), y = 0.009,  color="#dc082b", label = sprintf("%0.f", round(median(mu_unm$`2020-07-13`)*100, digits = 0)))+
-  annotate("text", x = median(mu_eurogeo$`2020-07-13`), y = 0.009,  color="#003a75", label = sprintf("%0.f", round(median(mu_eurogeo$`2020-07-13`)*100, digits = 0)))+
-  annotate("text", x = median(mu_apg$`2020-07-13`), y = 0.009,  color="#e7b031", label = sprintf("%0.f", round(median(mu_apg$`2020-07-13`)*100, digits = 0)))+
-  annotate("text", x = 0.01, y = 0.009,  label = "1%-threshold", family="BPG Excelsior Exp")+
-  annotate("text", x = 0.4, y = 0.009,  label = "40%-closing threshold", family="BPG Excelsior Exp")+
+  geom_vline(xintercept = median(mu_dream$`2020-09-07`), color="#0077be", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_unm$`2020-09-07`), color="#dc082b", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_eurogeo$`2020-09-07`), color="#003a75", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_apg$`2020-09-07`), color="#e7b031", linetype = "longdash")+
+  annotate("text", x = median(mu_dream$`2020-09-07`), y = 0.009,  color="#0077be", label = sprintf("%0.f", round(median(mu_dream$`2020-09-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_unm$`2020-09-07`), y = 0.009,  color="#dc082b", label = sprintf("%0.f", round(median(mu_unm$`2020-09-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_eurogeo$`2020-09-07`), y = 0.009,  color="#003a75", label = sprintf("%0.f", round(median(mu_eurogeo$`2020-09-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_apg$`2020-09-07`), y = 0.009,  color="#e7b031", label = sprintf("%0.f", round(median(mu_apg$`2020-09-07`)*100, digits = 0)))+
+  annotate("text", x = 0.01, y = 0.008,  label = "1%-threshold", family="BPG Excelsior Exp")+
+  annotate("text", x = 0.4, y = 0.008,  label = "40%-closing threshold", family="BPG Excelsior Exp")+
   scale_x_continuous(labels=function(x)x*100, limits=c(0, 1))+
   # facet_wrap(~party)
   labs(# title="პოლიტიკური პარტიების სიმულირებული პროპორცია",
