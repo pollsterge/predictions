@@ -5,7 +5,7 @@ library(ggiraph)
 
 ### Define plot theme
 
-setwd("D:\\Dropbox\\pollster.ge\\Geo Parl 2020\\Polls")
+setwd("D:\\Dropbox\\pollster.ge\\Geo Parl 2020\\Polls\\modeling\\jim_savage")
 
 theme_plot <- theme(
   axis.text.y = element_text(colour="black", size = 14, family = "BPG Excelsior Exp"),
