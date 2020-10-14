@@ -107,6 +107,23 @@ Y_lab <- polls %>%
   as.data.frame %>% as.matrix
 Y_lab[is.na(Y_lab)] <- -9
 
+Y_lel <- polls %>%
+  filter(PARTYCODE == "LELO")%>%
+  arrange(field_last_day)%>%
+  mutate(N = 1:n())%>%
+  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  dplyr::select(-field_last_day) %>% 
+  as.data.frame %>% as.matrix
+Y_lel[is.na(Y_lel)] <- -9
+
+Y_gir <- polls %>%
+  filter(PARTYCODE == "GIRCHI")%>%
+  arrange(field_last_day)%>%
+  mutate(N = 1:n())%>%
+  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  dplyr::select(-field_last_day) %>% 
+  as.data.frame %>% as.matrix
+Y_gir[is.na(Y_gir)] <- -9
 
 # Do the same for margin of errors for those polls
 
@@ -156,6 +173,82 @@ apg_model <- stan("state_space_polls.stan",
                                   initial_prior = 0.0656),
                       control = list(adapt_delta = 0.999999))
 
+### Parties below need new sigmas as they are not present in all datasets
+
+sigma <- polls %>%
+  filter(PARTYCODE == "NEWGEORGIA")%>%
+  arrange(field_last_day)%>%
+  mutate(N = 1:n())%>%
+  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
+  dplyr::select(-field_last_day)%>% 
+  as.data.frame %>% as.matrix
+sigma[is.na(sigma)] <- -9
+
+agm_model <- stan("state_space_polls.stan", 
+                  data = list(T = nrow(Y_agm), 
+                              polls = ncol(Y_agm), 
+                              Y = Y_agm, 
+                              sigma = sigma,
+                              initial_prior = mean(polls$Percent[polls$PARTYCODE == "NEWGEORGIA"], na.rm=T)),
+                  control = list(adapt_delta = 0.999999),
+                  iter=10000)
+### Labor party
+
+sigma <- polls %>%
+  filter(PARTYCODE == "LABOR")%>%
+  arrange(field_last_day)%>%
+  mutate(N = 1:n())%>%
+  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
+  dplyr::select(-field_last_day)%>% 
+  as.data.frame %>% as.matrix
+sigma[is.na(sigma)] <- -9
+
+lab_model <- stan("state_space_polls.stan", 
+                  data = list(T = nrow(Y_lab), 
+                              polls = ncol(Y_lab), 
+                              Y = Y_lab, 
+                              sigma = sigma,
+                              initial_prior = mean(polls$Percent[polls$PARTYCODE == "LABOR"], na.rm=T)),
+                  control = list(adapt_delta = 0.999999),
+                  iter=10000)
+
+sigma <- polls %>%
+  filter(PARTYCODE == "LELO")%>%
+  arrange(field_last_day)%>%
+  mutate(N = 1:n())%>%
+  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
+  dplyr::select(-field_last_day)%>% 
+  as.data.frame %>% as.matrix
+sigma[is.na(sigma)] <- -9
+
+lel_model <- stan("state_space_polls.stan", 
+                  data = list(T = nrow(Y_lel), 
+                              polls = ncol(Y_lel), 
+                              Y = Y_lel, 
+                              sigma = sigma,
+                              initial_prior = mean(polls$Percent[polls$PARTYCODE == "LELO"], na.rm=T)),
+                  control = list(adapt_delta = 0.999999),
+                  iter=10000)
+
+sigma <- polls %>%
+  filter(PARTYCODE == "GIRCHI")%>%
+  arrange(field_last_day)%>%
+  mutate(N = 1:n())%>%
+  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
+  dplyr::select(-field_last_day)%>% 
+  as.data.frame %>% as.matrix
+sigma[is.na(sigma)] <- -9
+
+gir_model <- stan("state_space_polls.stan", 
+                  data = list(T = nrow(Y_gir), 
+                              polls = ncol(Y_gir), 
+                              Y = Y_gir, 
+                              sigma = sigma,
+                              initial_prior = mean(polls$Percent[polls$PARTYCODE == "GIRCHI"], na.rm=T)),
+                  control = list(adapt_delta = 0.999999),
+                  iter=10000)
+
+
 # Pull the state vectors
 
 mu_dream <- rstan::extract(dream_model, pars = "mu", permuted = T)[[1]] %>% 
@@ -169,6 +262,24 @@ mu_eurogeo <- rstan::extract(eurogeo_model, pars = "mu", permuted = T)[[1]] %>%
 
 mu_apg <- rstan::extract(apg_model, pars = "mu", permuted = T)[[1]] %>% 
   as.data.frame
+
+mu_agm <- rstan::extract(agm_model, pars = "mu", permuted = T)[[1]] %>% 
+  as.data.frame%>%
+  select(tail(names(.), 1))
+
+mu_lab <- rstan::extract(lab_model, pars = "mu", permuted = T)[[1]] %>% 
+  as.data.frame%>%
+  select(tail(names(.), 1))
+
+mu_lel <- rstan::extract(lel_model, pars = "mu", permuted = T)[[1]] %>% 
+  as.data.frame%>%
+  select(tail(names(.), 1))
+
+mu_gir <- rstan::extract(gir_model, pars = "mu", permuted = T)[[1]] %>% 
+  as.data.frame%>%
+  select(tail(names(.), 1))
+
+
 # Rename to get dates
 
 names <- polls %>%
@@ -191,13 +302,19 @@ mu_unm$party <- "ერთიანი ნაციონალური მო�
 mu_eurogeo$party <- "ევროპული საქართველო"
 mu_apg$party <- "პატრიოტთა ალიანსი"
 
+
+names(mu_agm) <- "ag"
+names(mu_lab) <- "la"
+names(mu_lel) <- "le"
+names(mu_gir) <- "gi"
+
 preds <- rbind(mu_dream, mu_unm, mu_eurogeo, mu_apg)%>%
   mutate(
     party = factor(party, levels=c("ქართული ოცნება", "ერთიანი ნაციონალური მოძრაობა", "ევროპული საქართველო", "პატრიოტთა ალიანსი"))
   )
 
 analysis <- preds %>%
-  subset(select=c(`2020-09-07`, party))%>%
+  subset(select=c(`2020-10-07`, party))%>%
   as.data.frame()
 
 names(analysis) <- c("value", "party")
@@ -209,30 +326,102 @@ analysis %>%
   pivot_wider(names_from = party, values_from=value) -> party_grouped
 
 names(party_grouped) <- c("row", "gd", "unm", "eg", "pa")
-### Count what is the chance of GD losing to opposition
 
-nrow(party_grouped[party_grouped$`gd` > 0.5, ])/nrow(party_grouped)
-nrow(party_grouped[party_grouped$`gd` > 0.4, ])/nrow(party_grouped)
-nrow(party_grouped[party_grouped$`gd` >= 0.75, ])/nrow(party_grouped)
-nrow(party_grouped[party_grouped$`gd` < party_grouped$`unm`, ])/nrow(party_grouped)
+party_grouped <- cbind(party_grouped, mu_agm, mu_lab, mu_lel, mu_gir)
+### GD:
+gd <- data.frame(
+median=median(party_grouped$gd),
+fifty=nrow(party_grouped[party_grouped$`gd` > 0.5, ])/nrow(party_grouped),
+forty=nrow(party_grouped[party_grouped$`gd` > 0.4, ])/nrow(party_grouped),
+one=nrow(party_grouped[party_grouped$`gd` > 0.01, ])/nrow(party_grouped)
+)%>%
+  mutate(party="GD")
+
+### UNM:
+unm <- data.frame(
+  median=median(party_grouped$unm),
+  fifty=nrow(party_grouped[party_grouped$`unm` > 0.5, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`unm` > 0.4, ])/nrow(party_grouped),
+  one=nrow(party_grouped[party_grouped$`unm` > 0.01, ])/nrow(party_grouped)
+)%>%
+  mutate(party="UNM")
+
+### EG:
+eg <- data.frame(
+  median=median(party_grouped$eg),
+  fifty=nrow(party_grouped[party_grouped$`eg` > 0.5, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`eg` > 0.4, ])/nrow(party_grouped),
+  one=nrow(party_grouped[party_grouped$`eg` > 0.01, ])/nrow(party_grouped)
+)%>%
+  mutate(party="EG")
+
+### Patriots:
+pa <- data.frame(
+  median=median(party_grouped$pa),
+  fifty=nrow(party_grouped[party_grouped$`pa` > 0.5, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`pa` > 0.4, ])/nrow(party_grouped),
+  one=nrow(party_grouped[party_grouped$`pa` > 0.01, ])/nrow(party_grouped)
+)%>%
+  mutate(party="PA")
+
+### Agmashenebeli:
+ag <- data.frame(
+  median=median(party_grouped$ag),
+  fifty=nrow(party_grouped[party_grouped$`ag` > 0.5, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`ag` > 0.4, ])/nrow(party_grouped),
+  one=nrow(party_grouped[party_grouped$`ag` > 0.01, ])/nrow(party_grouped)
+)%>%
+  mutate(party="AG")
+
+###Labor:
+la <- data.frame(
+  median=median(party_grouped$la),
+  fifty=nrow(party_grouped[party_grouped$`la` > 0.5, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`la` > 0.4, ])/nrow(party_grouped),
+  one=nrow(party_grouped[party_grouped$`la` > 0.01, ])/nrow(party_grouped)
+)%>%
+  mutate(party="LA")
+
+### Lelo
+le <- data.frame(
+  median=median(party_grouped$le),
+  fifty=nrow(party_grouped[party_grouped$`le` > 0.5, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`le` > 0.4, ])/nrow(party_grouped),
+  one=nrow(party_grouped[party_grouped$`le` > 0.01, ])/nrow(party_grouped)
+)%>%
+  mutate(party="LE")
+
+### Girchi
+
+gi <- data.frame(
+  median=median(party_grouped$gi),
+  fifty=nrow(party_grouped[party_grouped$`gi` > 0.5, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`gi` > 0.4, ])/nrow(party_grouped),
+  one=nrow(party_grouped[party_grouped$`gi` > 0.01, ])/nrow(party_grouped)
+)%>%
+  mutate(party="GI")
 
 
+### bind together all parties
 
-ggplot(preds, aes(`2020-09-07`, group=party, fill=party, color=party))+
+rbind(gd,unm,eg,pa,ag,la,le,gi)%>%write.csv()
+
+### Plots of predictions
+ggplot(preds, aes(`2020-10-07`, group=party, fill=party, color=party))+
   geom_density_interactive(aes(y = (..count..)/sum(..count..), tooltip=party), alpha=0.5)+
   scale_fill_manual(values=c( "#195ea2", "#dc082b", "#003a75", "#e7b031"))+
   scale_color_manual(values=c( "#195ea2", "#dc082b", "#003a75", "#e7b031"))+
   geom_vline(xintercept = 0.5)+
   geom_vline(xintercept = 0.4)+
   geom_vline(xintercept = 0.01)+
-  geom_vline(xintercept = median(mu_dream$`2020-09-07`), color="#0077be", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_unm$`2020-09-07`), color="#dc082b", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_eurogeo$`2020-09-07`), color="#003a75", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_apg$`2020-09-07`), color="#e7b031", linetype = "longdash")+
-  annotate("text", x = median(mu_dream$`2020-09-07`), y = 0.009,  color="#0077be", label = sprintf("%0.f", round(median(mu_dream$`2020-09-07`)*100, digits = 0)))+
-  annotate("text", x = median(mu_unm$`2020-09-07`), y = 0.009,  color="#dc082b", label = sprintf("%0.f", round(median(mu_unm$`2020-09-07`)*100, digits = 0)))+
-  annotate("text", x = median(mu_eurogeo$`2020-09-07`), y = 0.009,  color="#003a75", label = sprintf("%0.f", round(median(mu_eurogeo$`2020-09-07`)*100, digits = 0)))+
-  annotate("text", x = median(mu_apg$`2020-09-07`), y = 0.009,  color="#e7b031", label = sprintf("%0.f", round(median(mu_apg$`2020-09-07`)*100, digits = 0)))+
+  geom_vline(xintercept = median(mu_dream$`2020-10-07`), color="#0077be", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_unm$`2020-10-07`), color="#dc082b", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_eurogeo$`2020-10-07`), color="#003a75", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_apg$`2020-10-07`), color="#e7b031", linetype = "longdash")+
+  annotate("text", x = median(mu_dream$`2020-10-07`), y = 0.009,  color="#0077be", label = sprintf("%0.f", round(median(mu_dream$`2020-10-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_unm$`2020-10-07`), y = 0.009,  color="#dc082b", label = sprintf("%0.f", round(median(mu_unm$`2020-10-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_eurogeo$`2020-10-07`), y = 0.009,  color="#003a75", label = sprintf("%0.f", round(median(mu_eurogeo$`2020-10-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_apg$`2020-10-07`), y = 0.009,  color="#e7b031", label = sprintf("%0.f", round(median(mu_apg$`2020-10-07`)*100, digits = 0)))+
   annotate("text", x = 0.01, y = 0.008,  label = "1%-იანი\nსაარჩევნო\nბარიერი", family="BPG Excelsior Exp")+
   annotate("text", x = 0.4, y = 0.008,  label = "40%-იანი\nჩამკეტი\nბარიერი", family="BPG Excelsior Exp")+
   scale_x_continuous(labels=function(x)x*100, limits=c(0, 1))+
@@ -273,21 +462,21 @@ preds <- rbind(mu_dream, mu_unm, mu_eurogeo, mu_apg)%>%
                                    "Alliance of Patriots"))
   )
 
-ggplot(preds, aes(`2020-09-07`, group=party, fill=party, color=party))+
+ggplot(preds, aes(`2020-10-07`, group=party, fill=party, color=party))+
   geom_density_interactive(aes(y = (..count..)/sum(..count..), tooltip=party), alpha=0.5)+
   scale_fill_manual(values=c( "#195ea2", "#dc082b", "#003a75", "#e7b031"))+
   scale_color_manual(values=c( "#195ea2", "#dc082b", "#003a75", "#e7b031"))+
   geom_vline(xintercept = 0.5)+
   geom_vline(xintercept = 0.4)+
   geom_vline(xintercept = 0.01)+
-  geom_vline(xintercept = median(mu_dream$`2020-09-07`), color="#0077be", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_unm$`2020-09-07`), color="#dc082b", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_eurogeo$`2020-09-07`), color="#003a75", linetype = "longdash")+
-  geom_vline(xintercept = median(mu_apg$`2020-09-07`), color="#e7b031", linetype = "longdash")+
-  annotate("text", x = median(mu_dream$`2020-09-07`), y = 0.009,  color="#0077be", label = sprintf("%0.f", round(median(mu_dream$`2020-09-07`)*100, digits = 0)))+
-  annotate("text", x = median(mu_unm$`2020-09-07`), y = 0.009,  color="#dc082b", label = sprintf("%0.f", round(median(mu_unm$`2020-09-07`)*100, digits = 0)))+
-  annotate("text", x = median(mu_eurogeo$`2020-09-07`), y = 0.009,  color="#003a75", label = sprintf("%0.f", round(median(mu_eurogeo$`2020-09-07`)*100, digits = 0)))+
-  annotate("text", x = median(mu_apg$`2020-09-07`), y = 0.009,  color="#e7b031", label = sprintf("%0.f", round(median(mu_apg$`2020-09-07`)*100, digits = 0)))+
+  geom_vline(xintercept = median(mu_dream$`2020-10-07`), color="#0077be", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_unm$`2020-10-07`), color="#dc082b", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_eurogeo$`2020-10-07`), color="#003a75", linetype = "longdash")+
+  geom_vline(xintercept = median(mu_apg$`2020-10-07`), color="#e7b031", linetype = "longdash")+
+  annotate("text", x = median(mu_dream$`2020-10-07`), y = 0.009,  color="#0077be", label = sprintf("%0.f", round(median(mu_dream$`2020-10-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_unm$`2020-10-07`), y = 0.009,  color="#dc082b", label = sprintf("%0.f", round(median(mu_unm$`2020-10-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_eurogeo$`2020-10-07`), y = 0.009,  color="#003a75", label = sprintf("%0.f", round(median(mu_eurogeo$`2020-10-07`)*100, digits = 0)))+
+  annotate("text", x = median(mu_apg$`2020-10-07`), y = 0.009,  color="#e7b031", label = sprintf("%0.f", round(median(mu_apg$`2020-10-07`)*100, digits = 0)))+
   annotate("text", x = 0.01, y = 0.008,  label = "1%-threshold", family="BPG Excelsior Exp")+
   annotate("text", x = 0.4, y = 0.008,  label = "40%-closing threshold", family="BPG Excelsior Exp")+
   scale_x_continuous(labels=function(x)x*100, limits=c(0, 1))+

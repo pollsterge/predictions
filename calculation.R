@@ -61,7 +61,7 @@ src %>%
     proportion = weighted.mean(Percent, 1/as.numeric(weight))
   )%>%
   ungroup()%>%
-  filter(proportion > 0.01)%>%
+  filter(proportion >= 0.01)%>%
   filter(PARTYCODE != "OTHER")%>%
   mutate(PARTYCODE = factor(PARTYCODE, levels=c("GD", "UNM", "EUROGEO", "APG", "LABOR", "NEWGEORGIA", "LELO",
                                                 "CIVICMO", "GIRCHI", "DMUG", "FORJUSTICE", "VICTORIOUSGEORGIA",
@@ -274,6 +274,7 @@ src %>%
   ungroup()%>%
   # View()
   filter(PARTYCODE %in% c("GD", "UNM", "EUROGEO", "APG"))%>%
+  # filter(field_last_day > "2019-01-01")%>%
   mutate(PARTYCODE = factor(PARTYCODE, levels=c("GD", "UNM", "EUROGEO", "APG"),
                             labels=c("Georgian Dream", "UNM", "European Georgia", "Alliance of Patriots")))%>%
   ggplot(aes(field_last_day, Percent, group=PARTYCODE, color=PARTYCODE))+ #, shape=PARTYCODE))+
