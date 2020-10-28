@@ -28,62 +28,159 @@ polls <- read_excel("Parliamentary 2020.xlsx", sheet = "data")%>%
       T ~ as.character(PARTYCODE)
     ),
     
-    field_last_day = as.Date(`Field last day`),
-    weight=Sys.Date()-field_last_day
+    field_last_day = as.Date(`Field last day`)
   )%>%
+### Calculate weighted average per each poll (assumption is that this reflects the true situation on polling day)
   group_by(WAVEID)%>%
   mutate(
     Percent = Percent/sum(Percent),
     sigma=(AME/4)*0.01
   )%>%
+  group_by(PARTYCODE)%>%
   arrange(field_last_day)%>%
   ungroup()%>%
   mutate(
     sigma= tidyr::replace_na(sigma, mean(sigma, na.rm=T)))
   
+weights <- read_excel("Parliamentary 2020.xlsx", sheet = "data")%>%
+  filter(!WAVEID %in% c("W1", "W5"))%>%
+  filter(!PARTYCODE %in% c("DK",
+                           "NOPARTY",
+                           "NOTASKED",
+                           "NOTDECIDED",
+                           "REFUSE",
+                           # "OTHER",
+                           "UNDECIDED"
+  ))%>%
+  mutate(
+    PARTYCODE = case_when(
+      PARTYCODE == "SHENEBA" ~ "LELO",
+      T ~ as.character(PARTYCODE)
+    ),
+    PARTYCODE = case_when(
+      PARTYCODE == "FREEDEM" ~ "EUROGEO",
+      T ~ as.character(PARTYCODE)
+    ),
+    
+    field_last_day = as.Date(`Field last day`)
+  )
+  
+weights <- polls %>%
+  filter(PARTYCODE == "GD")%>%
+  mutate(
+    PARTYCODE = case_when(
+      PARTYCODE == "SHENEBA" ~ "LELO",
+      T ~ as.character(PARTYCODE)
+    ),
+    PARTYCODE = case_when(
+      PARTYCODE == "FREEDEM" ~ "EUROGEO",
+      T ~ as.character(PARTYCODE)
+    ),
+    
+    field_last_day = as.Date(`Field last day`),
+    weight=Sys.Date()-field_last_day
+  )%>%
+  select(WAVEID, field_last_day)%>%
+  arrange(field_last_day)%>%
+  data.frame()
+
+wt <- weights %>%
+  pivot_wider(WAVEID, names_from = "WAVEID", values_from = "field_last_day") %>%
+  slice(rep(1:n(), each=nrow(weights)))%>%
+  cbind(weights)
+  
+wt <- data.frame(sapply(wt[1:nrow(weights)], function(x)ifelse(wt$field_last_day-x>=0, wt$field_last_day-x, NA)))%>%
+  mutate_all(funs(ifelse(.==0, 1, .)))%>%
+  cbind(weights)%>%
+  data.frame()%>%
+  select(W2:WAVEID)%>%
+  pivot_longer(!WAVEID, names_to = "wave_weight", values_to = "weight")%>%
+  filter(!is.na(weight))%>%
+  mutate(weight=1/weight)%>%
+  rename(weight_id=WAVEID)
+
+polls %>%
+  filter(PARTYCODE == "GD")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, 1/as.numeric(weight))
+  )%>%
+  # ungroup()%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))
 ### Make first for GD
 
 # The polling data
 # One row for each day, one column for each poll on that day, -9 for missing values
 Y_dream <- polls %>%
   filter(PARTYCODE == "GD")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, weight)
+  )%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day  ~ N, value.var = "Percent") %>% 
+  filter(field_last_day > "2018-07-08")%>%
+  dcast(field_last_day  ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day ) %>% 
   as.data.frame %>% as.matrix
 Y_dream[is.na(Y_dream)] <- -9
 
 Y_unm <- polls %>%
   filter(PARTYCODE == "UNM")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, weight)
+  )%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  filter(field_last_day > "2018-07-08")%>%
+  dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
   as.data.frame %>% as.matrix
 Y_unm[is.na(Y_unm)] <- -9
 
 Y_eurogeo <- polls %>%
   filter(PARTYCODE == "EUROGEO")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, weight)
+  )%>%
+  # ungroup()%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  group_by(WAVEID)%>%
+  group_by(weight_id)%>%
   summarize(field_last_day=first(field_last_day),
             Percent=sum(Percent),
             N=first(N))%>%
   ungroup()%>%
   arrange(N)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  filter(field_last_day > "2018-07-08")%>%
+  dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
   as.data.frame %>% as.matrix
 Y_eurogeo[is.na(Y_eurogeo)] <- -9
 
 Y_apg <- polls %>%
   filter(PARTYCODE == "APG")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, weight)
+  )%>%
+  # ungroup()%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  filter(field_last_day > "2018-07-08")%>%
+  dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
   as.data.frame %>% as.matrix
 Y_apg[is.na(Y_apg)] <- -9
@@ -91,36 +188,73 @@ Y_apg[is.na(Y_apg)] <- -9
 
 Y_agm <- polls %>%
   filter(PARTYCODE == "NEWGEORGIA")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  filter(!is.na(PARTYCODE))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, weight)
+  )%>%
+  # ungroup()%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  filter(field_last_day > "2018-07-08")%>%
+  dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
   as.data.frame %>% as.matrix
 Y_agm[is.na(Y_agm)] <- -9
 
 Y_lab <- polls %>%
   filter(PARTYCODE == "LABOR")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  filter(!is.na(PARTYCODE))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, weight)
+  )%>%
+  # ungroup()%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  filter(field_last_day > "2018-07-08")%>%
+  dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
   as.data.frame %>% as.matrix
 Y_lab[is.na(Y_lab)] <- -9
 
+
 Y_lel <- polls %>%
   filter(PARTYCODE == "LELO")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  filter(!is.na(PARTYCODE))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, weight)
+  )%>%
+  # ungroup()%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  filter(field_last_day > "2018-12-12")%>%
+  dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
   as.data.frame %>% as.matrix
 Y_lel[is.na(Y_lel)] <- -9
 
 Y_gir <- polls %>%
   filter(PARTYCODE == "GIRCHI")%>%
+  right_join(wt, by=c("WAVEID"="wave_weight"))%>%
+  filter(!is.na(PARTYCODE))%>%
+  group_by(weight_id)%>%
+  summarize(
+    Percent = weighted.mean(Percent, weight)
+  )%>%
+  # ungroup()%>%
+  left_join(weights, by=c("weight_id"="WAVEID"))%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "Percent") %>% 
+  filter(field_last_day > "2018-07-08")%>%
+  dcast(field_last_day ~ N, value.var = "Percent") %>% 
   dplyr::select(-field_last_day) %>% 
   as.data.frame %>% as.matrix
 Y_gir[is.na(Y_gir)] <- -9
@@ -131,7 +265,8 @@ sigma <- polls %>%
   filter(PARTYCODE == "GD")%>%
   arrange(field_last_day)%>%
   mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
+  filter(field_last_day > "2018-07-08")%>%
+  dcast(field_last_day ~ N, value.var = "sigma")%>% 
   dplyr::select(-field_last_day)%>% 
   as.data.frame %>% as.matrix
 sigma[is.na(sigma)] <- -9
@@ -175,15 +310,6 @@ apg_model <- stan("state_space_polls.stan",
 
 ### Parties below need new sigmas as they are not present in all datasets
 
-sigma <- polls %>%
-  filter(PARTYCODE == "NEWGEORGIA")%>%
-  arrange(field_last_day)%>%
-  mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
-  dplyr::select(-field_last_day)%>% 
-  as.data.frame %>% as.matrix
-sigma[is.na(sigma)] <- -9
-
 agm_model <- stan("state_space_polls.stan", 
                   data = list(T = nrow(Y_agm), 
                               polls = ncol(Y_agm), 
@@ -194,15 +320,6 @@ agm_model <- stan("state_space_polls.stan",
                   iter=2000)
 ### Labor party
 
-sigma <- polls %>%
-  filter(PARTYCODE == "LABOR")%>%
-  arrange(field_last_day)%>%
-  mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
-  dplyr::select(-field_last_day)%>% 
-  as.data.frame %>% as.matrix
-sigma[is.na(sigma)] <- -9
-
 lab_model <- stan("state_space_polls.stan", 
                   data = list(T = nrow(Y_lab), 
                               polls = ncol(Y_lab), 
@@ -212,15 +329,6 @@ lab_model <- stan("state_space_polls.stan",
                   control = list(adapt_delta = 0.999999),
                   iter=2000)
 
-sigma <- polls %>%
-  filter(PARTYCODE == "LELO")%>%
-  arrange(field_last_day)%>%
-  mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
-  dplyr::select(-field_last_day)%>% 
-  as.data.frame %>% as.matrix
-sigma[is.na(sigma)] <- -9
-
 lel_model <- stan("state_space_polls.stan", 
                   data = list(T = nrow(Y_lel), 
                               polls = ncol(Y_lel), 
@@ -229,15 +337,6 @@ lel_model <- stan("state_space_polls.stan",
                               initial_prior = mean(polls$Percent[polls$PARTYCODE == "LELO"], na.rm=T)),
                   control = list(adapt_delta = 0.999999),
                   iter=2000)
-
-sigma <- polls %>%
-  filter(PARTYCODE == "GIRCHI")%>%
-  arrange(field_last_day)%>%
-  mutate(N = 1:n())%>%
-  filter(N > 8) %>% dcast(field_last_day ~ N, value.var = "sigma")%>% 
-  dplyr::select(-field_last_day)%>% 
-  as.data.frame %>% as.matrix
-sigma[is.na(sigma)] <- -9
 
 gir_model <- stan("state_space_polls.stan", 
                   data = list(T = nrow(Y_gir), 
@@ -332,7 +431,7 @@ party_grouped <- cbind(party_grouped, mu_agm, mu_lab, mu_lel, mu_gir)
 gd <- data.frame(
 median=median(party_grouped$gd),
 fifty=nrow(party_grouped[party_grouped$`gd` > 0.5, ])/nrow(party_grouped),
-forty=nrow(party_grouped[party_grouped$`gd` > 0.4, ])/nrow(party_grouped),
+forty=nrow(party_grouped[party_grouped$`gd` > 0.405, ])/nrow(party_grouped),
 one=nrow(party_grouped[party_grouped$`gd` > 0.01, ])/nrow(party_grouped)
 )%>%
   mutate(party="GD")
@@ -341,7 +440,7 @@ one=nrow(party_grouped[party_grouped$`gd` > 0.01, ])/nrow(party_grouped)
 unm <- data.frame(
   median=median(party_grouped$unm),
   fifty=nrow(party_grouped[party_grouped$`unm` > 0.5, ])/nrow(party_grouped),
-  forty=nrow(party_grouped[party_grouped$`unm` > 0.4, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`unm` > 0.405, ])/nrow(party_grouped),
   one=nrow(party_grouped[party_grouped$`unm` > 0.01, ])/nrow(party_grouped)
 )%>%
   mutate(party="UNM")
@@ -350,7 +449,7 @@ unm <- data.frame(
 eg <- data.frame(
   median=median(party_grouped$eg),
   fifty=nrow(party_grouped[party_grouped$`eg` > 0.5, ])/nrow(party_grouped),
-  forty=nrow(party_grouped[party_grouped$`eg` > 0.4, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`eg` > 0.405, ])/nrow(party_grouped),
   one=nrow(party_grouped[party_grouped$`eg` > 0.01, ])/nrow(party_grouped)
 )%>%
   mutate(party="EG")
@@ -359,7 +458,7 @@ eg <- data.frame(
 pa <- data.frame(
   median=median(party_grouped$pa),
   fifty=nrow(party_grouped[party_grouped$`pa` > 0.5, ])/nrow(party_grouped),
-  forty=nrow(party_grouped[party_grouped$`pa` > 0.4, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`pa` > 0.405, ])/nrow(party_grouped),
   one=nrow(party_grouped[party_grouped$`pa` > 0.01, ])/nrow(party_grouped)
 )%>%
   mutate(party="PA")
@@ -368,7 +467,7 @@ pa <- data.frame(
 ag <- data.frame(
   median=median(party_grouped$ag),
   fifty=nrow(party_grouped[party_grouped$`ag` > 0.5, ])/nrow(party_grouped),
-  forty=nrow(party_grouped[party_grouped$`ag` > 0.4, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`ag` > 0.405, ])/nrow(party_grouped),
   one=nrow(party_grouped[party_grouped$`ag` > 0.01, ])/nrow(party_grouped)
 )%>%
   mutate(party="AG")
@@ -377,7 +476,7 @@ ag <- data.frame(
 la <- data.frame(
   median=median(party_grouped$la),
   fifty=nrow(party_grouped[party_grouped$`la` > 0.5, ])/nrow(party_grouped),
-  forty=nrow(party_grouped[party_grouped$`la` > 0.4, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`la` > 0.405, ])/nrow(party_grouped),
   one=nrow(party_grouped[party_grouped$`la` > 0.01, ])/nrow(party_grouped)
 )%>%
   mutate(party="LA")
@@ -386,7 +485,7 @@ la <- data.frame(
 le <- data.frame(
   median=median(party_grouped$le),
   fifty=nrow(party_grouped[party_grouped$`le` > 0.5, ])/nrow(party_grouped),
-  forty=nrow(party_grouped[party_grouped$`le` > 0.4, ])/nrow(party_grouped),
+  forty=nrow(party_grouped[party_grouped$`le` > 0.405, ])/nrow(party_grouped),
   one=nrow(party_grouped[party_grouped$`le` > 0.01, ])/nrow(party_grouped)
 )%>%
   mutate(party="LE")
